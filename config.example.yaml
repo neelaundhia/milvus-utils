@@ -1,0 +1,12 @@
+log:
+  level: debug
+  format: json
+
+milvus:
+  operator_name: "milvus"
+  namespace: "milvus"
+  root_bucket: "s3://milvus"
+  root_path: "files"
+  backup_bucket: "s3://milvus-backup"
+  backup_etcd_path: "etcd-snapshots"
+  backup_s3_path: "s3-snapshots"

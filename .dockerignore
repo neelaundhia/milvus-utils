@@ -1,0 +1,8 @@
+*
+!internal
+!pkg
+!go.mod
+!go.sum
+!cmd
+!migrations
+!main.go
