@@ -3,6 +3,7 @@ log:
   format: json
 
 milvus:
+  local: false
   operator_name: "milvus"
   namespace: "milvus"
   username: ""

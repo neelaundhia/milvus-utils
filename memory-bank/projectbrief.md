@@ -39,6 +39,6 @@ Milvus's built-in backup tool triggers index rebuilding on restore, which is slo
 
 - Runs **inside** EKS pod; credential chain is IRSA (no explicit creds).
 - Namespace is implicit (uses in-cluster service account namespace).
-- All endpoints derived from `milvus.operator_name` config key.
+- All endpoints derived from `milvus.operator_name` config key, unless `milvus.local: true` in which case `localhost` is used (useful for local development/testing).
 - No K8s scaling during create — only write quiescing via Milvus API.
 - CLI built with Cobra + Viper; config from YAML + env vars.

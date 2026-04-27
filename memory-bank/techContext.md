@@ -40,7 +40,8 @@ log:
   format: json # json|text
 
 milvus:
-  operator_name: "milvus" # drives all derived endpoints
+  local: false           # if true, all endpoints use localhost (ignores operator_name/namespace)
+  operator_name: "milvus" # drives all derived endpoints (ignored when local: true)
   root_bucket: "s3://milvus" # production Milvus data bucket
   root_path: "files" # S3 prefix within root_bucket
   backup_bucket: "s3://milvus-backup"
@@ -50,13 +51,20 @@ milvus:
 
 ### Derived Endpoints
 
+`MilvusConfig` exposes helper methods that return the correct address based on `Local`:
+
+| Method | local: false | local: true |
+|---|---|---|
+| `GRPCAddr()` | `{operator_name}-milvus:19530` | `localhost:19530` |
+| `EtcdEndpoints()` | `[{operator_name}-etcd:2379]` | `[localhost:2379]` |
+| Mgmt HTTP (derived in `NewClient`) | `http://{operator_name}-milvus:9091` | `http://localhost:9091` |
+
 ```
-Milvus gRPC:      {operator_name}-milvus:19530
-Milvus Mgmt HTTP: http://{operator_name}-milvus:9091  (derived inside NewClient; no config field)
-Etcd:             {operator_name}-etcd:2379
-Milvus CR:        milvus.io/v1beta1 / Kind: Milvus / name: {operator_name}
-Etcd STS:         {operator_name}-etcd
+Milvus CR:  milvus.io/v1beta1 / Kind: Milvus / name: {operator_name}
+Etcd STS:   {operator_name}-etcd
 ```
+
+Always use `cfg.Milvus.GRPCAddr()` and `cfg.Milvus.EtcdEndpoints()` — never build addresses inline.
 
 ## Kubernetes Deployment
 

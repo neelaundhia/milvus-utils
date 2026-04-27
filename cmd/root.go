@@ -19,6 +19,7 @@ type Config struct {
 }
 
 type MilvusConfig struct {
+	Local          bool   `mapstructure:"local"`
 	OperatorName   string `mapstructure:"operator_name"`
 	Namespace      string `mapstructure:"namespace"`
 	Username       string `mapstructure:"username"`
@@ -28,6 +29,26 @@ type MilvusConfig struct {
 	BackupBucket   string `mapstructure:"backup_bucket"`
 	BackupEtcdPath string `mapstructure:"backup_etcd_path"`
 	BackupS3Path   string `mapstructure:"backup_s3_path"`
+}
+
+// GRPCAddr returns the Milvus gRPC address.
+// When Local is true, returns localhost:19530.
+// Otherwise derives it from OperatorName: {operator_name}-milvus:19530.
+func (m MilvusConfig) GRPCAddr() string {
+	if m.Local {
+		return "localhost:19530"
+	}
+	return m.OperatorName + "-milvus:19530"
+}
+
+// EtcdEndpoints returns the etcd endpoint list.
+// When Local is true, returns [localhost:2379].
+// Otherwise derives it from OperatorName: {operator_name}-etcd:2379.
+func (m MilvusConfig) EtcdEndpoints() []string {
+	if m.Local {
+		return []string{"localhost:2379"}
+	}
+	return []string{m.OperatorName + "-etcd:2379"}
 }
 
 type LogConfig struct {

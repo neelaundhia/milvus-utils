@@ -21,6 +21,17 @@ Each subcommand lives in its own file under `cmd/`.
 - `loadConfig()` unmarshals viper state into `Config` struct
 - Secrets overlay: `secrets.yaml` is merged after `config.yaml`
 
+### Endpoint Resolution
+
+`MilvusConfig` has helper methods for address derivation — use these everywhere, never build addresses inline:
+
+```go
+cfg.Milvus.GRPCAddr()       // localhost:19530  or  {operator_name}-milvus:19530
+cfg.Milvus.EtcdEndpoints()  // [localhost:2379] or  [{operator_name}-etcd:2379]
+```
+
+The management HTTP URL is derived automatically inside `milvus.NewClient` from `GRPCAddr()` — same host, port `9091`.
+
 ## Error Handling Pattern
 
 - `RunE` functions return errors (Cobra prints them)

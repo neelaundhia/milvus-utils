@@ -92,7 +92,7 @@ Update this tree whenever a file is added to or removed from `memory-bank/`.
 - Read `memory-bank/progress.md` at the start of every session to understand current state.
 - **After completing any task:**
   1. Update `memory-bank/progress.md` — mark items done, set "What's Next".
-  2. Update any other `memory-bank/` file whose content has changed (e.g. new patterns, new dependencies).
+  2. Go through each and every file in `memory-bank/` and update any other `memory-bank/` file whose content has changed with the work you did. These changes can be updated dependencies, architecture changes, file structure changes, etc. It is very very important to keep the memory bank updated.
   3. Update the memory bank file tree in this file (`AGENTS.md`) if files were added or removed.
   4. Update `README.md` if user-facing behaviour, config structure, or usage changed.
 - Follow existing code style — no extra abstractions, no speculative features.

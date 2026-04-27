@@ -43,6 +43,7 @@ log:
   format: json # json|text
 
 milvus:
+  local: false             # if true, use localhost for all endpoints (ignores operator_name/namespace)
   operator_name: "milvus" # derives all endpoints (gRPC, etcd, K8s CR)
   root_bucket: "s3://milvus" # production Milvus data bucket
   root_path: "files" # S3 prefix within root_bucket
@@ -51,11 +52,11 @@ milvus:
   backup_s3_path: "s3-snapshots"
 ```
 
-All endpoints are derived from `operator_name`:
+All endpoints are derived from `operator_name` (unless `local: true`):
 
-- Milvus gRPC: `{operator_name}-milvus:19530`
-- Milvus Management HTTP: `http://{operator_name}-milvus:9091` (derived automatically, no config field)
-- Etcd: `{operator_name}-etcd:2379`
+- Milvus gRPC: `{operator_name}-milvus:19530` → `localhost:19530` when local
+- Milvus Management HTTP: `http://{operator_name}-milvus:9091` → `http://localhost:9091` when local (derived automatically, no config field)
+- Etcd: `{operator_name}-etcd:2379` → `localhost:2379` when local
 - Milvus CR: `Kind Milvus / name {operator_name}`
 
 ## Usage
