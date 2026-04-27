@@ -21,9 +21,6 @@ internal/
   s3/           — AWS S3 client (server-side copy, upload, download)
   k8s/          — Kubernetes client (CR patching, STS scaling, PVC deletion)
 pkg/            — Shared utilities
-tests/
-  etcd/main.go  — Ad-hoc etcd client smoke test (port-forward required)
-  milvus/main.go — Ad-hoc Milvus client smoke test (port-forward required)
 deploy/         — Kubernetes manifests (CronJob, RBAC, ConfigMap)
 ```
 

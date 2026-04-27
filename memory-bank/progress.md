@@ -43,8 +43,6 @@
 - [x] Create `internal/etcd/client.go` — `NewClient`, `Close`, `Snapshot(ctx, io.Writer)`
 - [x] Promote `go.etcd.io/etcd/client/v3 v3.5.5` to direct dependency
 - [x] `make build` verified clean
-- [x] Create `tests/etcd/main.go` — ad-hoc smoke test (port-forward to `localhost:2379`)
-- [x] Create `tests/milvus/main.go` — ad-hoc smoke test covering all client methods (port-forward to `localhost:19530` + `9091`)
 
 ### Phase 4: S3 Operations ⬜
 

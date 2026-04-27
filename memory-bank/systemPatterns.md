@@ -27,23 +27,6 @@ Each subcommand lives in its own file under `cmd/`.
 - Deferred calls used for cleanup (e.g., restoring `deny.writing = false`)
 - Logrus for structured logging at each step
 
-## Ad-hoc Test Pattern
-
-Standalone `main` packages under `tests/<package>/main.go` for smoke-testing internal clients against live services.
-Requires port-forwarding the relevant service before running:
-
-```bash
-# etcd
-kubectl port-forward svc/<operator-name>-etcd 2379:2379
-go run ./tests/etcd
-
-# milvus
-kubectl port-forward svc/<operator-name>-milvus 19530:19530 9091:9091
-go run ./tests/milvus
-```
-
-Each test prints `PASS <method>` on success or calls `log.Fatalf` on the first failure.
-
 ## Internal Package Pattern
 
 Each `internal/` package follows:
