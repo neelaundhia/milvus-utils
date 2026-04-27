@@ -15,12 +15,16 @@
 | `github.com/sirupsen/logrus`                   | Structured logging               |
 | `github.com/milvus-io/milvus/client/v2 v2.6.3` | Milvus gRPC SDK                  |
 | `go.etcd.io/etcd/client/v3 v3.5.5`             | Etcd Maintenance API             |
+| `github.com/aws/aws-sdk-go-v2`                  | AWS SDK core                     |
+| `github.com/aws/aws-sdk-go-v2/config`           | AWS default credential chain     |
+| `github.com/aws/aws-sdk-go-v2/service/s3`       | S3 API client                    |
+| `github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager` | Multipart upload/download |
+| `golang.org/x/sync`                             | errgroup for parallel S3 ops     |
 
 ### Planned additions by phase
 
 | Phase | Package                        | Purpose           |
 | ----- | ------------------------------ | ----------------- |
-| 4     | `github.com/aws/aws-sdk-go-v2` | S3 operations     |
 | 6     | `k8s.io/client-go`             | Kubernetes client |
 
 ## Configuration

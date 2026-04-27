@@ -59,7 +59,22 @@ Within a package, methods may be split across multiple files by concern, e.g.:
 internal/milvus/
   client.go      — struct definition, NewClient, gRPC SDK methods
   management.go  — HTTP management API methods (PauseGC, ResumeGC)
+
+internal/s3/
+  client.go      — struct definition, NewClient, single-object ops (List, Upload, Download)
+  parallel.go    — bulk parallel operations (CopyPrefix, DeletePrefix)
 ```
+
+## S3 Parallelization Pattern
+
+S3 operations use `errgroup` with a configurable concurrency limit (default 64 workers):
+
+- **CopyPrefix:** Lists source objects, then copies them in parallel via `CopyObject` (server-side, no data through client). Logs progress every 1000 objects.
+- **DeletePrefix:** Lists objects, then issues `DeleteObjects` calls in batches of 1000 (S3 API limit), batches run in parallel.
+- **Upload:** Uses `transfermanager.UploadObject` for automatic multipart upload of large files (etcd snapshots).
+- **Download:** Streams via `GetObject` + `io.Copy`.
+
+`ParseBucketURI()` strips the `s3://` prefix from config bucket URIs before passing to AWS API.
 
 ## S3 Naming Conventions
 

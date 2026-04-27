@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Phase 3 complete.** Etcd snapshot client implemented. `go.etcd.io/etcd/client/v3` promoted to direct dependency. Build verified clean.
+**Phase 4 complete.** S3 operations implemented with parallel server-side copy and batch delete. AWS SDK v2 + `golang.org/x/sync` added. Build verified clean.
 
 ---
 
@@ -44,10 +44,13 @@
 - [x] Promote `go.etcd.io/etcd/client/v3 v3.5.5` to direct dependency
 - [x] `make build` verified clean
 
-### Phase 4: S3 Operations ⬜
+### Phase 4: S3 Operations ✅
 
-- [ ] Create `internal/s3/client.go`
-- [ ] Add `github.com/aws/aws-sdk-go-v2` dependency
+- [x] Create `internal/s3/client.go` — Client struct, NewClient, ParseBucketURI, ListObjects, ListCommonPrefixes, Upload (transfermanager), Download
+- [x] Create `internal/s3/parallel.go` — CopyPrefix (parallel server-side copy, errgroup worker pool), DeletePrefix (parallel batch delete, 1000 keys/batch)
+- [x] Add `github.com/aws/aws-sdk-go-v2` + `config` + `service/s3` + `feature/s3/transfermanager` dependencies
+- [x] Add `golang.org/x/sync` dependency (errgroup for parallel operations)
+- [x] `make tidy` + `make build` verified clean
 
 ### Phase 5: Snapshot Create Orchestration ⬜
 
@@ -80,4 +83,4 @@
 
 ## What's Next
 
-**Phase 4** — Create `internal/s3/client.go`. Add `github.com/aws/aws-sdk-go-v2` dependency. Implement server-side S3 copy, upload (for etcd snapshot), and download methods.
+**Phase 5** — Implement `cmd/create.go` RunE. Wire up the full snapshot create orchestration: deny writing → pause GC → flush → etcd snapshot → S3 copy → resume GC → allow writing.

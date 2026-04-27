@@ -19,6 +19,8 @@ internal/
   etcd/
     client.go      — NewClient, Close, Snapshot(ctx, io.Writer)
   s3/           — AWS S3 client (server-side copy, upload, download)
+    client.go      — struct, NewClient, ParseBucketURI, List*, Upload, Download
+    parallel.go    — CopyPrefix (parallel copy), DeletePrefix (parallel batch delete)
   k8s/          — Kubernetes client (CR patching, STS scaling, PVC deletion)
 pkg/            — Shared utilities
 deploy/         — Kubernetes manifests (CronJob, RBAC, ConfigMap)
@@ -63,7 +65,7 @@ make clean        # remove build artifacts
 | 1     | Config & types refactor            | Complete    |
 | 2     | Milvus client                      | Complete    |
 | 3     | Etcd snapshot client               | Complete    |
-| 4     | S3 operations                      | Not started |
+| 4     | S3 operations                      | Complete    |
 | 5     | Snapshot create orchestration      | Not started |
 | 6     | K8s client for restore             | Not started |
 | 7     | Snapshot restore orchestration     | Not started |
