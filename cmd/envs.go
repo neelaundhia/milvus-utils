@@ -36,7 +36,7 @@ func doEnvs(cmd *cobra.Command, args []string) {
 
 	var src reflect.Value
 	if values {
-		cfg, err := loadConfig()
+		cfg, err := LoadConfig()
 		if err != nil {
 			fmt.Println("Error loading config:", err)
 			return
