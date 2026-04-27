@@ -21,6 +21,8 @@ type Config struct {
 type MilvusConfig struct {
 	OperatorName   string `mapstructure:"operator_name"`
 	Namespace      string `mapstructure:"namespace"`
+	Username       string `mapstructure:"username"`
+	Password       string `mapstructure:"password"`
 	RootBucket     string `mapstructure:"root_bucket"`
 	RootPath       string `mapstructure:"root_path"`
 	BackupBucket   string `mapstructure:"backup_bucket"`
@@ -37,7 +39,7 @@ type LogConfig struct {
 var rootCmd = &cobra.Command{
 	Use:   "milvus-utils",
 	Short: "A set of common utilities to manage milvus.",
-	Long: `A set of common utilities to manage milvus. Has capabilities to create and restore snapshots.`,
+	Long:  `A set of common utilities to manage milvus. Has capabilities to create and restore snapshots.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -94,7 +96,7 @@ func initConfig() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 }
 
-func loadConfig() (*Config, error) {
+func LoadConfig() (*Config, error) {
 	var config Config
 	bindEnvs(config)
 
@@ -137,7 +139,7 @@ func bindEnvs(iface interface{}, parts ...string) {
 			name = tag
 		}
 		fieldParts := append(parts, name) //nolint:gocritic
-		switch fieldv.Kind() { //nolint:exhaustive
+		switch fieldv.Kind() {            //nolint:exhaustive
 		case reflect.Struct:
 			bindEnvs(fieldv.Interface(), fieldParts...)
 		default:
@@ -158,7 +160,7 @@ func setDefaults(iface interface{}, parts ...string) {
 			name = tag
 		}
 		fieldParts := append(parts, name) //nolint:gocritic
-		switch fieldv.Kind() { //nolint:exhaustive
+		switch fieldv.Kind() {            //nolint:exhaustive
 		case reflect.Struct:
 			setDefaults(fieldv.Interface(), fieldParts...)
 		default:

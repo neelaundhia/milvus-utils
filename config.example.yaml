@@ -5,6 +5,8 @@ log:
 milvus:
   operator_name: "milvus"
   namespace: "milvus"
+  username: ""
+  password: ""
   root_bucket: "s3://milvus"
   root_path: "files"
   backup_bucket: "s3://milvus-backup"

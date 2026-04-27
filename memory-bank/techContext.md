@@ -3,8 +3,8 @@
 ## Language & Tooling
 
 - **Go 1.25** (CI enforced via `github.com/neelaundhia/workflows`)
-- **Container image:** `docker.io/library/golang:1.25` (Podman)
-- **All Go commands run in Podman container** — never directly on host
+- **Dev environment:** VS Code dev container (`mcr.microsoft.com/devcontainers/go:2-1.25-trixie`)
+- Go commands run natively inside the dev container — no Podman wrapper needed
 
 ## Key Dependencies
 
@@ -78,10 +78,12 @@ Etcd STS:         {operator_name}-etcd
 
 ## Build & Run
 
+Run inside the dev container (or any host with Go 1.25):
+
 ```bash
-make build                        # go build in container
-make test                         # go test ./... in container
-make tidy                         # go mod tidy in container
+make build                        # go build
+make test                         # go test ./...
+make tidy                         # go mod tidy
 make run CMD="snapshot create"    # run subcommand
 make envs                         # print config env vars
 ```

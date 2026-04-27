@@ -30,11 +30,11 @@ deploy/         — Kubernetes manifests (CronJob, RBAC, ConfigMap)
 ## Key Conventions
 
 - **Module:** `github.com/neelaundhia/milvus-utils`
-- **Go version:** 1.25 (CI) / container image `golang:1.25`
-- **Run all Go commands inside the Podman container** (see Makefile targets).
+- **Go version:** 1.25 (CI) / dev container `mcr.microsoft.com/devcontainers/go:2-1.25-trixie`
+- Go commands run natively inside the dev container — Makefile targets call `go` directly.
 - **Config** is loaded from `config.yaml` + optional `secrets.yaml` + `--config` flag + env vars (viper, cobra).
 - **Logging:** `github.com/sirupsen/logrus` — JSON in production, text for local dev.
-- **Never** run `go` directly on the host; always use `make build`, `make tidy`, `make test`, etc.
+- Use `make build`, `make tidy`, `make test`, etc. as the canonical entry points.
 
 ## Derived Endpoints (from `milvus.operator_name`)
 
@@ -50,12 +50,12 @@ The management HTTP API is derived automatically inside `internal/milvus.NewClie
 ## Development Workflow
 
 ```bash
-make build        # compile binary in container
-make test         # run unit tests in container
-make tidy         # go mod tidy in container
+make build        # compile binary
+make test         # run unit tests
+make tidy         # go mod tidy
 make envs         # print resolved config keys
 make run CMD="snapshot create"   # run a command
-make clean        # wipe Go module/build caches
+make clean        # remove build artifacts
 ```
 
 ## Implementation Phases (see memory-bank/progress.md)
