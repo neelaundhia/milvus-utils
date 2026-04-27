@@ -43,6 +43,10 @@ log:
   level: debug # debug|info|warn|error|fatal|panic
   format: json # json|text
 
+aws:
+  region: "eu-west-1"   # AWS region for S3 buckets
+  endpoint: ""           # optional: override S3 endpoint (e.g. http://localhost:4566 for LocalStack)
+
 milvus:
   local: false           # if true, all endpoints use localhost (ignores operator_name/namespace)
   operator_name: "milvus" # drives all derived endpoints (ignored when local: true)

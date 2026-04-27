@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Phase 4 complete.** S3 operations implemented with parallel server-side copy and batch delete. AWS SDK v2 + `golang.org/x/sync` added. Build verified clean.
+**Phase 5 complete.** Snapshot create orchestration implemented and **integration-tested** against live Milvus + etcd + S3. All 6 steps verified: list DBs, deny writing, pause GC, flush, etcd snapshot, S3 copy (2389 objects in ~5s). AWS config (region/endpoint) added. Build verified clean.
 
 ---
 
@@ -52,9 +52,25 @@
 - [x] Add `golang.org/x/sync` dependency (errgroup for parallel operations)
 - [x] `make tidy` + `make build` verified clean
 
-### Phase 5: Snapshot Create Orchestration ⬜
+### Phase 5: Snapshot Create Orchestration ✅
 
-- [ ] Implement `cmd/create.go` RunE
+- [x] Implement `cmd/create.go` `runCreate` function with full orchestration
+- [x] Generate snapshot ID from UTC timestamp (`2006-01-02T15-04-05Z` format)
+- [x] Initialise all three clients (Milvus gRPC, etcd, S3) from config
+- [x] Step 1: Deny writing on all databases (with deferred allow-writing on all DBs)
+- [x] Step 2: Pause GC with 3600s TTL (non-fatal on failure; deferred ResumeGC with ticket)
+- [x] Step 3: Flush all databases (persists in-memory segments to S3)
+- [x] Step 4a: Snapshot etcd to in-memory buffer via Maintenance API
+- [x] Step 4b: Upload etcd snapshot to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.snapshot`
+- [x] Step 4c: Parallel server-side copy of S3 data from `{root_bucket}/{root_path}/` to `{backup_bucket}/{backup_s3_path}/{snapshot_id}/`
+- [x] Cleanup: GC resumed + writes re-enabled by defers (runs even on error)
+- [x] Structured logging at each step with logrus
+- [x] Added `AWSConfig` struct (region, endpoint) to `cmd/root.go`
+- [x] Added `WithRegion` / `WithEndpoint` options to S3 `NewClient`
+- [x] Added `ListCollections` method in `internal/milvus/collections.go`
+- [x] Added `InitConfig()` exported function for standalone scripts
+- [x] Integration tested all 6 steps against live services
+- [x] `make build` verified clean
 
 ### Phase 6: K8s Client for Restore ⬜
 
@@ -83,4 +99,4 @@
 
 ## What's Next
 
-**Phase 5** — Implement `cmd/create.go` RunE. Wire up the full snapshot create orchestration: deny writing → pause GC → flush → etcd snapshot → S3 copy → resume GC → allow writing.
+**Phase 6** — Create `internal/k8s/client.go`. Implement Kubernetes client for restore operations: CR patching, etcd STS scaling, PVC deletion, Flux annotation toggling.

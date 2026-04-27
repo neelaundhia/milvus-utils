@@ -13,12 +13,18 @@ Follows [golang-standards/project-layout](https://github.com/golang-standards/pr
 │   ├── root.go          # Config struct, viper setup, logrus logger, reflection helpers
 │   ├── envs.go          # `envs` subcommand: introspects Config via reflection
 │   ├── snapshot.go      # `snapshot` parent command
-│   ├── create.go        # `snapshot create`
+│   ├── create.go        # `snapshot create` — quiesce + etcd snapshot + S3 copy
 │   └── restore.go       # `snapshot restore`
 ├── internal/
-│   └── milvus/
-│       ├── client.go     # Milvus gRPC SDK client (Flush, SetDenyWriting, etc.)
-│       └── management.go # Milvus management HTTP client (PauseGC, ResumeGC)
+│   ├── milvus/
+│   │   ├── client.go     # Milvus gRPC SDK client (Flush, SetDenyWriting, etc.)
+│   │   └── management.go # Milvus management HTTP client (PauseGC, ResumeGC)
+│   ├── etcd/
+│   │   └── client.go     # Etcd Maintenance API client (Snapshot)
+│   └── s3/
+│       ├── client.go     # AWS S3 client (List, Upload, Download)
+│       └── parallel.go   # Parallel server-side copy & batch delete
+```
 
 ## Build and Test
 
@@ -41,6 +47,10 @@ Copy `config.example.yaml` to `config.yaml` and fill in your values. Secrets (cr
 log:
   level: info # debug|info|warn|error
   format: json # json|text
+
+aws:
+  region: "eu-west-1"   # AWS region for S3 buckets
+  endpoint: ""           # optional: override S3 endpoint (e.g. LocalStack)
 
 milvus:
   local: false             # if true, use localhost for all endpoints (ignores operator_name/namespace)
@@ -66,6 +76,21 @@ make run CMD="snapshot create"
 make run CMD="snapshot restore"
 make envs
 ```
+
+## Snapshot Create
+
+`snapshot create` performs a point-in-time backup of all Milvus data (etcd metadata + S3 segment data). The snapshot preserves pre-built indexes, avoiding costly reindexing on restore.
+
+**Flow:**
+
+1. **Deny writing** on all databases — clean cutoff, reads still served
+2. **Pause GC** — prevents S3 object deletion during snapshot (non-fatal if it fails)
+3. **Flush all** — persists in-memory segments to S3
+4. **Snapshot etcd** — streams via Maintenance API, uploads to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.snapshot`
+5. **Copy S3 data** — parallel server-side copy to `s3://{backup_bucket}/{backup_s3_path}/{snapshot_id}/`
+6. **Resume GC** + **Allow writing** — always runs via defers, even on error
+
+Snapshot ID is a UTC timestamp: `2006-01-02T15-04-05Z`.
 
 ## CLI
 

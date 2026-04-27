@@ -2,6 +2,10 @@ log:
   level: debug
   format: json
 
+aws:
+  region: "eu-west-1"
+  endpoint: ""  # optional: set to override S3 endpoint (e.g. http://localhost:4566 for LocalStack)
+
 milvus:
   local: false
   operator_name: "milvus"

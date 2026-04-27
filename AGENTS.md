@@ -16,6 +16,7 @@ internal/
   milvus/       — Milvus gRPC client (SDK v2) and management HTTP client
     client.go      — struct, NewClient, gRPC methods (Flush, SetDeny*)
     management.go  — HTTP management API methods (PauseGC, ResumeGC)
+    collections.go — ListCollections per database
   etcd/
     client.go      — NewClient, Close, Snapshot(ctx, io.Writer)
   s3/           — AWS S3 client (server-side copy, upload, download)
@@ -66,7 +67,7 @@ make clean        # remove build artifacts
 | 2     | Milvus client                      | Complete    |
 | 3     | Etcd snapshot client               | Complete    |
 | 4     | S3 operations                      | Complete    |
-| 5     | Snapshot create orchestration      | Not started |
+| 5     | Snapshot create orchestration      | Complete    |
 | 6     | K8s client for restore             | Not started |
 | 7     | Snapshot restore orchestration     | Not started |
 | 8     | Snapshot list command              | Not started |

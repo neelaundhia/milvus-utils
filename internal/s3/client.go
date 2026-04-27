@@ -23,14 +23,46 @@ type Client struct {
 	concurrency int
 }
 
+// Option configures the S3 client.
+type Option func(*options)
+
+type options struct {
+	region   string
+	endpoint string
+}
+
+// WithRegion overrides the AWS region.
+func WithRegion(region string) Option {
+	return func(o *options) { o.region = region }
+}
+
+// WithEndpoint overrides the S3 endpoint URL (e.g. for LocalStack).
+func WithEndpoint(endpoint string) Option {
+	return func(o *options) { o.endpoint = endpoint }
+}
+
 // NewClient creates an S3 client using the default AWS credential chain
 // (IRSA in EKS, env vars, shared config, etc.).
-func NewClient(ctx context.Context) (*Client, error) {
-	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
+	var o options
+	for _, fn := range opts {
+		fn(&o)
+	}
+
+	var cfgOpts []func(*awsconfig.LoadOptions) error
+	if o.region != "" {
+		cfgOpts = append(cfgOpts, awsconfig.WithRegion(o.region))
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, cfgOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
 	}
-	inner := s3.NewFromConfig(cfg)
+	inner := s3.NewFromConfig(cfg, func(so *s3.Options) {
+		if o.endpoint != "" {
+			so.BaseEndpoint = aws.String(o.endpoint)
+		}
+	})
 	return &Client{
 		inner:       inner,
 		tm:          transfermanager.New(inner),

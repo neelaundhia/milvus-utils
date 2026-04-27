@@ -15,7 +15,13 @@ var cfgFile string
 
 type Config struct {
 	Log    LogConfig    `mapstructure:"log"`
+	AWS    AWSConfig    `mapstructure:"aws"`
 	Milvus MilvusConfig `mapstructure:"milvus"`
+}
+
+type AWSConfig struct {
+	Region   string `mapstructure:"region"`
+	Endpoint string `mapstructure:"endpoint"`
 }
 
 type MilvusConfig struct {
@@ -74,6 +80,12 @@ func Execute() {
 func init() { //nolint:gochecknoinits
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default is config.yaml)")
+}
+
+// InitConfig initialises viper with config files and env vars.
+// Exported so standalone scripts can call it before LoadConfig.
+func InitConfig() {
+	initConfig()
 }
 
 // initConfig reads in config file and ENV variables if set.
