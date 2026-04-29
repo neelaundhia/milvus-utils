@@ -79,7 +79,7 @@ S3 operations use `errgroup` with a configurable concurrency limit (default 64 w
 ## S3 Naming Conventions
 
 ```
-Etcd snapshot:  s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.snapshot
+Etcd snapshot:  s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.db
 S3 snapshot:    s3://{backup_bucket}/{backup_s3_path}/{snapshot_id}/
 Production data: s3://{root_bucket}/{root_path}/
 ```

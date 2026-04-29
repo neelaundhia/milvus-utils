@@ -127,7 +127,7 @@ func runCreate(cmd *cobra.Command, _ []string) error {
 
 	// ── Step 4b: Upload etcd snapshot to S3 ─────────────────────────────
 	backupBucket := s3.ParseBucketURI(cfg.Milvus.BackupBucket)
-	etcdKey := cfg.Milvus.BackupEtcdPath + "/" + snapshotID + ".snapshot"
+	etcdKey := cfg.Milvus.BackupEtcdPath + "/" + snapshotID + ".db"
 	if err := s3Client.Upload(ctx, backupBucket, etcdKey, &etcdBuf); err != nil {
 		return fmt.Errorf("uploading etcd snapshot: %w", err)
 	}

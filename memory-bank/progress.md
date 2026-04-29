@@ -61,7 +61,7 @@
 - [x] Step 2: Pause GC with 3600s TTL (non-fatal on failure; deferred ResumeGC with ticket)
 - [x] Step 3: Flush all databases (persists in-memory segments to S3)
 - [x] Step 4a: Snapshot etcd to in-memory buffer via Maintenance API
-- [x] Step 4b: Upload etcd snapshot to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.snapshot`
+- [x] Step 4b: Upload etcd snapshot to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.db`
 - [x] Step 4c: Parallel server-side copy of S3 data from `{root_bucket}/{root_path}/` to `{backup_bucket}/{backup_s3_path}/{snapshot_id}/`
 - [x] Cleanup: GC resumed + writes re-enabled by defers (runs even on error)
 - [x] Structured logging at each step with logrus

@@ -86,7 +86,7 @@ make envs
 1. **Deny writing** on all databases — clean cutoff, reads still served
 2. **Pause GC** — prevents S3 object deletion during snapshot (non-fatal if it fails)
 3. **Flush all** — persists in-memory segments to S3
-4. **Snapshot etcd** — streams via Maintenance API, uploads to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.snapshot`
+4. **Snapshot etcd** — streams via Maintenance API, uploads to `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.db`
 5. **Copy S3 data** — parallel server-side copy to `s3://{backup_bucket}/{backup_s3_path}/{snapshot_id}/`
 6. **Resume GC** + **Allow writing** — always runs via defers, even on error
 
