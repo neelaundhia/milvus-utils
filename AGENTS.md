@@ -68,9 +68,9 @@ make clean        # remove build artifacts
 | 3     | Etcd snapshot client               | Complete    |
 | 4     | S3 operations                      | Complete    |
 | 5     | Snapshot create orchestration      | Complete    |
-| 6     | K8s client for restore             | Not started |
-| 7     | Snapshot restore orchestration     | Not started |
-| 8     | Snapshot list command              | Not started |
+| 6     | Snapshot list command              | Complete    |
+| 7     | K8s client for restore             | Not started |
+| 8     | Snapshot restore orchestration     | Not started |
 | 9     | Kubernetes deployment manifests    | Not started |
 | 10    | Testing & CI                       | Not started |
 

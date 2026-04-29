@@ -14,6 +14,7 @@ Follows [golang-standards/project-layout](https://github.com/golang-standards/pr
 │   ├── envs.go          # `envs` subcommand: introspects Config via reflection
 │   ├── snapshot.go      # `snapshot` parent command
 │   ├── create.go        # `snapshot create` — quiesce + etcd snapshot + S3 copy
+│   ├── list.go          # `snapshot list` — list and verify snapshots in S3
 │   └── restore.go       # `snapshot restore`
 ├── internal/
 │   ├── milvus/
@@ -73,6 +74,7 @@ All endpoints are derived from `operator_name` (unless `local: true`):
 
 ```shell
 make run CMD="snapshot create"
+make run CMD="snapshot list"
 make run CMD="snapshot restore"
 make envs
 ```
@@ -91,6 +93,27 @@ make envs
 6. **Resume GC** + **Allow writing** — always runs via defers, even on error
 
 Snapshot ID is a UTC timestamp: `2006-01-02T15-04-05Z`.
+
+## Snapshot List
+
+`snapshot list` lists the 3 most recent Milvus snapshots stored in S3.
+
+For each snapshot ID it checks whether both components are present:
+
+- **Etcd**: `s3://{backup_bucket}/{backup_etcd_path}/{snapshot_id}.db`
+- **S3 Data**: `s3://{backup_bucket}/{backup_s3_path}/{snapshot_id}/`
+
+Output format:
+
+```
+────────────────────────────────────────────────────────────
+  Snapshot : 2025-04-29T10-00-00Z
+  Status   : complete
+  Etcd     : s3://milvus-backup/etcd-snapshots/2025-04-29T10-00-00Z.db
+  S3 Data  : s3://milvus-backup/s3-snapshots/2025-04-29T10-00-00Z/
+```
+
+Status is `complete` when both components are present, `incomplete` otherwise.
 
 ## CLI
 

@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Phase 5 complete.** Snapshot create orchestration implemented and **integration-tested** against live Milvus + etcd + S3. All 6 steps verified: list DBs, deny writing, pause GC, flush, etcd snapshot, S3 copy (2389 objects in ~5s). AWS config (region/endpoint) added. Build verified clean.
+**Phase 6 complete.** Snapshot list command implemented. Lists up to 10 latest snapshots from S3, verifies both etcd (`.db`) and S3 data components are present, and prints their full S3 paths with a complete/incomplete status. Build verified clean.
 
 ---
 
@@ -72,18 +72,24 @@
 - [x] Integration tested all 6 steps against live services
 - [x] `make build` verified clean
 
-### Phase 6: K8s Client for Restore ⬜
+### Phase 6: Snapshot List Command ✅
+
+- [x] Create `cmd/list.go`
+- [x] List etcd snapshots under `{backup_etcd_path}/` (keys matching `{snapshot_id}.db`)
+- [x] List S3 data snapshots under `{backup_s3_path}/` (common prefixes with delimiter `/`)
+- [x] Union IDs, sort descending (lexicographic = chronological for timestamp format), cap at 10
+- [x] Verify both components present; mark incomplete if either is missing
+- [x] Print table: SNAPSHOT ID, STATUS, ETCD PATH, S3 DATA PATH
+- [x] `make build` verified clean
+
+### Phase 7: K8s Client for Restore ⬜
 
 - [ ] Create `internal/k8s/client.go`
 
-### Phase 7: Snapshot Restore Orchestration ⬜
+### Phase 8: Snapshot Restore Orchestration ⬜
 
 - [ ] Implement `cmd/restore.go` RunE
 - [ ] Resolve etcd snapshot seeding mechanism (see systemPatterns.md)
-
-### Phase 8: Snapshot List Command ⬜
-
-- [ ] Create `cmd/list.go`
 
 ### Phase 9: Kubernetes Deployment Manifests ⬜
 
@@ -99,4 +105,4 @@
 
 ## What's Next
 
-**Phase 6** — Create `internal/k8s/client.go`. Implement Kubernetes client for restore operations: CR patching, etcd STS scaling, PVC deletion, Flux annotation toggling.
+**Phase 7** — Create `internal/k8s/client.go`. Implement Kubernetes client for restore operations: CR patching, etcd STS scaling, PVC deletion, Flux annotation toggling.
