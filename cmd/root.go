@@ -19,6 +19,11 @@ type Config struct {
 	Milvus MilvusConfig `mapstructure:"milvus"`
 }
 
+type LogConfig struct {
+	Level  string `mapstructure:"level" default:"info" validate:"oneof=debug info warn error fatal panic"`
+	Format string `mapstructure:"format" default:"text" validate:"oneof=json text"`
+}
+
 type AWSConfig struct {
 	Region   string `mapstructure:"region"`
 	Endpoint string `mapstructure:"endpoint"`
@@ -55,11 +60,6 @@ func (m MilvusConfig) EtcdEndpoints() []string {
 		return []string{"localhost:2379"}
 	}
 	return []string{m.OperatorName + "-etcd:2379"}
-}
-
-type LogConfig struct {
-	Level  string `mapstructure:"level" default:"info" validate:"oneof=debug info warn error fatal panic"`
-	Format string `mapstructure:"format" default:"text" validate:"oneof=json text"`
 }
 
 // rootCmd represents the base command when called without any subcommands.
