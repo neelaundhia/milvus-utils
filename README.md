@@ -1,6 +1,6 @@
 # milvus-utils
 
-CLI tool for managing Milvus vector-database instances in Kubernetes. Core operations: snapshot Milvus data (S3 + etcd) and restore it, pausing/resuming dependent Kubernetes workloads around those operations via JSON Patch.
+CLI tool for managing Milvus vector-database instances in Kubernetes. Currently, it supports `snapshot create`, `snapshot list` and `snapshot restore` for speedy Milvus disaster recovery. The tool can be run both interactively as well as non-interactively. Contrary to the `milvus-backup` tool that basically inserts raw data and then creates indices, `milvus-utils` takes `raw snapshots of etcd and s3 state` and then restores them instead. Doing it this way makes DR feasible/efficient for large Milvus databases.
 
 ## Project Layout
 
@@ -18,8 +18,9 @@ Follows [golang-standards/project-layout](https://github.com/golang-standards/pr
 │   └── restore.go       # `snapshot restore`
 ├── internal/
 │   ├── milvus/
-│   │   ├── client.go     # Milvus gRPC SDK client (Flush, SetDenyWriting, etc.)
-│   │   └── management.go # Milvus management HTTP client (PauseGC, ResumeGC)
+│   │   ├── client.go      # Milvus gRPC SDK client (Flush, SetDenyWriting, etc.)
+│   │   ├── management.go  # Milvus management HTTP client (PauseGC, ResumeGC)
+│   │   └── collections.go # ListCollections per database
 │   ├── etcd/
 │   │   └── client.go     # Etcd Maintenance API client (Snapshot)
 │   └── s3/
@@ -29,7 +30,7 @@ Follows [golang-standards/project-layout](https://github.com/golang-standards/pr
 
 ## Build and Test
 
-All Go commands run inside a Podman container. Use the Makefile targets:
+Go commands run natively (dev container or local). Use the Makefile targets:
 
 ```shell
 make build          # go build -o /tmp/milvus-utils main.go
@@ -37,12 +38,12 @@ make test           # go test ./...
 make tidy           # go mod tidy
 make run CMD="..."  # go run main.go <args>
 make envs           # inspect available config environment variables
-make clean          # remove Podman volume caches
+make clean          # remove build artifacts
 ```
 
 ## Configuration
 
-Copy `config.example.yaml` to `config.yaml` and fill in your values. Secrets (credentials) go in `secrets.yaml` (gitignored). Config is also configurable via environment variables (e.g. `MILVUS_OPERATOR_NAME`).
+Create `config.yaml` using the example below and fill in your values. Secrets (credentials) go in `secrets.yaml` (gitignored). Config is also configurable via environment variables (e.g. `MILVUS_OPERATOR_NAME`).
 
 ```yaml
 log:
@@ -50,17 +51,26 @@ log:
   format: json # json|text
 
 aws:
-  region: "eu-west-1"   # AWS region for S3 buckets
-  endpoint: ""           # optional: override S3 endpoint (e.g. LocalStack)
+  region: "eu-west-1" # AWS region for S3 buckets
+  endpoint: "" # optional: override S3 endpoint (e.g. LocalStack)
 
 milvus:
-  local: false             # if true, use localhost for all endpoints (ignores operator_name/namespace)
+  local: false # if true, use localhost for all endpoints (ignores operator_name/namespace)
   operator_name: "milvus" # derives all endpoints (gRPC, etcd, K8s CR)
+  namespace: "milvus" # Kubernetes namespace for Milvus resources
   root_bucket: "s3://milvus" # production Milvus data bucket
   root_path: "files" # S3 prefix within root_bucket
   backup_bucket: "s3://milvus-backup"
   backup_etcd_path: "etcd-snapshots"
   backup_s3_path: "s3-snapshots"
+
+restore:
+  snapshot_id: "" # optional: override snapshot to restore (default: latest complete)
+  storage_class: "" # storage class for temp PVC
+  job_service_account: "" # SA with IRSA (or equivalent) for S3 read access to backup bucket
+  job_image: "amazon/aws-cli" # image for snapshot download Job
+  flux_kustomization_name: "" # Flux Kustomization to suspend
+  flux_kustomization_namespace: "" # namespace of Flux Kustomization
 ```
 
 All endpoints are derived from `operator_name` (unless `local: true`):
@@ -68,7 +78,7 @@ All endpoints are derived from `operator_name` (unless `local: true`):
 - Milvus gRPC: `{operator_name}-milvus:19530` → `localhost:19530` when local
 - Milvus Management HTTP: `http://{operator_name}-milvus:9091` → `http://localhost:9091` when local (derived automatically, no config field)
 - Etcd: `{operator_name}-etcd:2379` → `localhost:2379` when local
-- Milvus CR: `Kind Milvus / name {operator_name}`
+- Milvus CR: `kind: Milvus / name: {operator_name} namespace: {namespace}`
 
 ## Usage
 
@@ -115,10 +125,49 @@ Output format:
 
 Status is `complete` when both components are present, `incomplete` otherwise.
 
-## CLI
+## Snapshot Restore
 
-Built with [cobra](https://github.com/spf13/cobra). To scaffold a new subcommand:
+`snapshot restore` performs a full disaster recovery of Milvus from a raw snapshot. It uses a teardown + recreate approach with least possible downtime.
+
+**Prerequisites:**
+
+- Milvus managed by [milvus-operator](https://github.com/milvus-io/milvus-operator) with Bitnami etcd (inCluster)
+- Flux Kustomization managing Milvus resources
+- EBS-backed etcd PVCs (RWO)
+- Service account (configured via `restore.job_service_account`) with S3 read access to backup bucket
+
+**Usage:**
 
 ```shell
-cobra add mycommand
+# Restore from latest complete snapshot with CLI (interactive configuration/confirmation gates)
+make run CMD="snapshot restore"
+
+# Restore a specific snapshot without confirmations (non-interactive overrides as flags)
+make run CMD="snapshot restore --snapshot-id 2025-04-29T10-00-00Z --force"
 ```
+
+**Flow:**
+
+1. **Resolve snapshot** — Latest complete, `--snapshot-id` flag, shapshot_id from the config file or SNAPSHOT_ID from envs.s
+2. **Confirm snapshot** — User confirms snapshot ID [Gate 1]
+3. **Suspend Flux** — Patch the configured flux kustomization(`restore.`) with `.spec.suspend: true`
+4. **Delete scalers** — Delete all HPAs + KEDA ScaledObjects in the configured namespace(`milvus.namespace`).
+5. **Delete Milvus CR** — Confirm Milvus CR name and namespace [Gate 2]; After explicit consent, delete the Milvus CR and then the operator tears down all.
+6. **Wait** — Wait for all pods in the namespace to terminate
+7. **Delete etcd PVCs** — stale data removed
+8. **Delete S3** — wipe root bucket/path [Gate 3]
+9. **Copy S3** — server-side copy from backup [Gate 4]
+10. **Seed etcd** — temp PVC + Job downloads snapshot from S3
+11. **Recreate CR** — etcd `replicaCount: 1` + Bitnami `startFromSnapshot`
+12. **Wait etcd-0** — single replica restores from snapshot
+13. **Scale etcd** — patch CR to original replica count
+14. **Wait healthy** — all etcd members + Milvus components
+15. **Resume Flux** — reconciles CR to Git state, recreates scalers
+16. **Cleanup** — delete temp PVC + Job
+
+**Key design:**
+
+- Uses Bitnami etcd chart's official `startFromSnapshot` mechanism
+- Single-replica bootstrap avoids EBS RWO limitation
+- Live CR is captured before deletion and reused for recreation
+- Flux handles final state reconciliation (removes temp config, recreates scalers)
