@@ -15,7 +15,7 @@ const maxListSnapshots = 3
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available Milvus snapshots",
-	Long: `List the 10 most recent Milvus snapshots stored in S3.
+	Long: `List the 3 most recent Milvus snapshots stored in S3.
 
 Each snapshot consists of an etcd backup (.db) and an S3 data copy.
 The command verifies both components are present and prints their S3 paths.`,

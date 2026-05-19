@@ -159,16 +159,49 @@ Notes:
 
 ## Snapshot Restore — Implementation Details
 
-See `README.md` for the full restore flow steps. Extended downtime (10+ min) is acceptable for disaster recovery. Below are the implementation-specific design details.
+Full restore flow is documented here (moved from README until implemented). Extended downtime (10+ min) is acceptable for disaster recovery. Below are the implementation-specific design details.
+
+### Restore Flow
+
+1. **Resolve snapshot** — Latest complete, `--snapshot-id` flag, snapshot_id from config, or SNAPSHOT_ID env
+2. **Confirm snapshot** — User confirms snapshot ID [Gate 1]
+3. **Suspend Flux** — Patch the configured flux kustomization (`restore.`) with `.spec.suspend: true`
+4. **Delete scalers** — Delete all HPAs + KEDA ScaledObjects in the configured namespace (`milvus.namespace`)
+5. **Delete Milvus CR** — Confirm Milvus CR name and namespace [Gate 2]; operator tears down all
+6. **Wait** — Wait for all pods in the namespace to terminate
+7. **Delete etcd PVCs** — stale data removed
+8. **Delete S3** — wipe root bucket/path [Gate 3]
+9. **Copy S3** — server-side copy from backup [Gate 4]
+10. **Seed etcd** — temp PVC + Job downloads snapshot from S3
+11. **Recreate CR** — etcd `replicaCount: 1` + Bitnami `startFromSnapshot`
+12. **Wait etcd-0** — single replica restores from snapshot
+13. **Scale etcd** — patch CR to original replica count
+14. **Wait healthy** — all etcd members + Milvus components
+15. **Resume Flux** — reconciles CR to Git state, recreates scalers
+16. **Cleanup** — delete temp PVC + Job
+
+### Restore Config (to be added to Config struct in Phase 7)
+
+```yaml
+restore:
+  snapshot_id: "" # override snapshot to restore (default: latest complete)
+  storage_class: "" # storage class for temp PVC
+  job_service_account: "" # SA with IRSA for S3 read access to backup bucket
+  job_image: "amazon/aws-cli" # image for snapshot download Job
+  flux_kustomization_name: "" # Flux Kustomization to suspend
+  flux_kustomization_namespace: "" # namespace of Flux Kustomization
+```
 
 ### Key Design Decisions
 
 - **Bitnami `startFromSnapshot`**: Official chart mechanism for etcd restore
 - **Single-replica bootstrap**: Restore etcd as 1 replica (EBS RWO compatible), then scale up
+- **EBS RWO confirmed safe**: EBS does NOT support RWX; sequential access (Job→etcd-0) works with RWO since only one pod mounts at a time
+- **Milvus Operator**: Now at `zilliztech/milvus-operator` (original `milvus-io/milvus-operator` archived Nov 2023). API: `milvus.io/v1beta1`
 - **Live CR capture**: Tool reads actual CR before deleting to preserve full user spec
 - **Flux handles cleanup**: Temp `startFromSnapshot` config removed on reconcile; HPAs/ScaledObjects recreated
 - **4 confirmation gates** at destructive steps (snapshot selection, CR delete, S3 delete, S3 restore)
-- **Interactive as well as Non-Interactive**: The tool should be ablet to run interactively with prompts as well as non-interactively with flags for configuration/confirmation. For example, `make run CMD="snapshot restore` (Interactive prompts for configuration and confirmation gates) `make run CMD="snapshot restore --snapshot-id 2025-04-29T10-00-00Z --force` \*(Non-Interactive with flags for providing needed values)
+- **Interactive as well as Non-Interactive**: The tool should be able to run interactively with prompts as well as non-interactively with flags for configuration/confirmation. For example, `make run CMD="snapshot restore"` (Interactive prompts for configuration and confirmation gates) `make run CMD="snapshot restore --snapshot-id 2025-04-29T10-00-00Z --force"` (Non-Interactive with flags for providing needed values)
 
 ### Etcd `startFromSnapshot` Mechanism
 
