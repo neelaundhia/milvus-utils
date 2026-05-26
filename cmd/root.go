@@ -14,9 +14,19 @@ import (
 var cfgFile string
 
 type Config struct {
-	Log    LogConfig    `mapstructure:"log"`
-	AWS    AWSConfig    `mapstructure:"aws"`
-	Milvus MilvusConfig `mapstructure:"milvus"`
+	Log     LogConfig     `mapstructure:"log"`
+	AWS     AWSConfig     `mapstructure:"aws"`
+	Milvus  MilvusConfig  `mapstructure:"milvus"`
+	Restore RestoreConfig `mapstructure:"restore"`
+}
+
+type RestoreConfig struct {
+	SnapshotID                  string `mapstructure:"snapshot_id"`
+	StorageClass                string `mapstructure:"storage_class"`
+	JobServiceAccount           string `mapstructure:"job_service_account"`
+	JobImage                    string `mapstructure:"job_image" default:"amazon/aws-cli"`
+	FluxKustomizationName       string `mapstructure:"flux_kustomization_name"`
+	FluxKustomizationNamespace  string `mapstructure:"flux_kustomization_namespace"`
 }
 
 type LogConfig struct {
