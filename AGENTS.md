@@ -28,7 +28,6 @@ internal/
     parallel.go    — CopyPrefix (parallel copy), DeletePrefix (parallel batch delete)
   k8s/          — Kubernetes client (Flux suspend, CR lifecycle, PVC/HPA/SO deletion, Job management)
 pkg/            — Shared utilities
-deploy/         — Kubernetes manifests (CronJob, RBAC, ConfigMap)
 ```
 
 ## Key Conventions
@@ -63,8 +62,7 @@ make clean        # remove build artifacts
 | 6     | Snapshot list command              | Complete    |
 | 7     | K8s client for restore             | Complete    |
 | 8     | Snapshot restore orchestration     | Complete    |
-| 9     | Kubernetes deployment manifests    | Not started |
-| 10    | Testing & CI                       | Not started |
+| 9     | Testing & CI                       | Not started |
 
 ## Agent Guidelines
 

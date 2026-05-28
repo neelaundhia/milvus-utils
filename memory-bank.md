@@ -159,28 +159,54 @@ Notes:
 
 ## Snapshot Restore — Implementation Details
 
-Full restore flow is documented here (moved from README until implemented). Extended downtime (10+ min) is acceptable for disaster recovery. Below are the implementation-specific design details.
+Full restore flow documented here. Extended downtime (10+ min) is acceptable for disaster recovery.
 
-### Restore Flow
+### Approach: Delete-and-Recreate
+
+Instead of incrementally patching the Milvus CR, the restore flow **deletes all Milvus-related resources** in the namespace (CR, etcd Helm release, PVCs, HPAs, ScaledObjects) and **recreates the Milvus CR from scratch** with etcd scaled to 1 with startFromSnapshot and all Milvus workers at 0 replicas. This is cleaner and avoids operator race conditions during partial teardown.
+
+**Key principle:** The namespace itself is preserved (keeps RBAC, secrets, service accounts). Only Milvus workload resources are deleted.
+
+### CR Sanitization Rules (when recreating)
+
+When the saved CR is prepared for re-creation, the following modifications are applied:
+
+| Category                                                                                | Action                                             |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `metadata.resourceVersion`, `uid`, `creationTimestamp`, `generation`                    | **Strip** (server-managed)                         |
+| `metadata.finalizers`                                                                   | **Strip** (operator adds them)                     |
+| `metadata.labels` (all)                                                                 | **Strip** (Flux re-adds on reconcile)              |
+| `metadata.annotations` matching `milvus.io/*`                                           | **Strip** (operator regenerates)                   |
+| `spec.dependencies.etcd.endpoints`                                                      | **Remove** (let operator derive from replicaCount) |
+| `spec.dependencies.etcd.inCluster.values.startFromSnapshot`                             | **Set** with new PVC name + enabled: true          |
+| `spec.dependencies.etcd.inCluster.values.replicaCount`                                  | **Set to 1**                                       |
+| `spec.components.{proxy,mixCoord,dataNode,queryNode,streamingNode,standalone}.replicas` | **Set to 0**                                       |
+| `status`                                                                                | **Strip entirely** (server-managed)                |
+
+### Restore Flow (Revised)
 
 1. **Resolve snapshot**: Latest complete, `--snapshot-id` flag, snapshot_id from config, or SNAPSHOT_ID env
-2. **Confirm snapshot**: User confirms snapshot ID [Gate 1]. Overridden by --force flag when run non-interactively.
-3. **Suspend Flux**: Patch the configured flux kustomization (`restore.`) with `.spec.suspend: true`
-4. **Confirm Milvus instance before performing destructive actions**: Confirm Milvus CR name and namespace [Gate 2]. Step 5-8 are destructive, prompt the user and get explicit confirmation. Overridden by --force flag when run non-interactively.
-5. **Delete scalers**: Delete all HPAs + KEDA ScaledObjects in the configured namespace (`milvus.namespace`)
-6. **Scale down Milvus workers to 0**: Patch the Milvus CR to set all component replicas to 0 (proxy, mixCoord, rootCoord, dataCoord, queryCoord, indexCoord, dataNode, queryNode, indexNode, streamingNode, standalone).
-7. **Uninstall etcd Helm release + delete PVCs/PVs**: Use Helm SDK to uninstall `{operatorName}-etcd`, then delete PVCs/PVs by label `app.kubernetes.io/instance={operatorName}-etcd,app.kubernetes.io/name=etcd`.
-8. **Delete S3 files**: Delete all the Milvus S3 files.
-9. **Wait**: Wait till there are no pods in the namespace.
-10. **Copy S3**: Make a server side copy of S3 files from the selected snapshot to Milvus S3 files.
-11. **Seed etcd snapshot to PVCS**: Temp PVC + Job downloads snapshot from S3
-12. **Recreate Milvus CR**: Recreate Milvus CR and set etcd `replicaCount: 1` + Bitnami `startFromSnapshot`
-13. **Wait etcd-0**: Single replica restores from snapshot
-14. **Resume Flux**: Reconciles CR to Git state, recreates scalers.
-15. **Wait healthy**: All etcd members + Milvus workers
-16. **Cleanup**: Delete temp PVC + Job
+2. **Confirm snapshot**: User confirms snapshot ID [Gate 1]. Overridden by `--force`.
+3. **Suspend Flux**: Patch the configured flux kustomization with `.spec.suspend: true`
+4. **Read live Milvus CR**: Save the full unstructured spec in memory (needed for recreation).
+5. **Confirm destructive actions**: Confirm Milvus CR name and namespace [Gate 2]. Overridden by `--force`.
+6. **Delete all Milvus resources**:
+   - Delete HPAs in namespace
+   - Delete KEDA ScaledObjects in namespace
+   - Delete the Milvus CR (operator cascade-deletes Milvus deployments/services; etcd retained due to `deletionPolicy: Retain`)
+   - Uninstall etcd Helm release (`{operatorName}-etcd`) — required because `deletionPolicy: Retain` keeps etcd alive after CR deletion
+   - Delete etcd PVCs/PVs by label selector — ensures empty data dir for startFromSnapshot
+7. **Wait for all pods to terminate**: Poll until no pods with `app.kubernetes.io/instance={operatorName}` exist.
+8. **Delete S3 data**: Delete all objects under `{root_bucket}/{root_path}/`.
+9. **Copy S3 data from snapshot**: Server-side copy from `{backup_bucket}/{backup_s3_path}/{snapshot_id}/` → `{root_bucket}/{root_path}/`.
+10. **Seed etcd snapshot**: Create temp PVC + download Job to fetch etcd snapshot from S3.
+11. **Recreate Milvus CR**: Apply the sanitized CR (see CR Sanitization Rules above).
+12. **Wait for etcd-0 to be ready**: Watch StatefulSet until ready replicas is equal to 1.
+13. **Revert startFromSnapshot**: Patch Milvus CR to null out `startFromSnapshot` (set to `{}`). Leave `replicaCount` as-is — Flux will set it on reconcile.
+14. **Resume Flux**: Flux reconciles CR back to Git state, scales up workers, sets etcd replicaCount, recreates HPAs/ScaledObjects.
+15. **Cleanup**: Delete temp PVC + Job.
 
-### Restore Config (to be added to Config struct in Phase 7)
+### Restore Config
 
 ```yaml
 restore:
@@ -194,23 +220,31 @@ restore:
 
 ### Key Design Decisions
 
+- **Delete-and-recreate** (not patch): Avoids operator race conditions; gives clean slate for etcd restore
+- **Read CR before deletion**: Preserves the full production spec so we can recreate accurately
+- **CR sanitization**: Strip server-managed metadata, labels, annotations, status, etcd endpoints; set replicas/startFromSnapshot
+- **All Milvus workers at 0**: Only etcd starts initially; Flux handles worker scale-up after resume
+- **CLI nulls startFromSnapshot**: After etcd is healthy, CLI patches startFronSnapshot to `{}` so Flux sees clean state
+- **Flux handles replicaCount**: CLI does NOT revert replicaCount — Flux reconciles it to Git-defined value
+- **etcd Helm uninstall required**: `deletionPolicy: Retain` means CR deletion alone won't clean up etcd
+- **etcd endpoints removed**: Let operator derive endpoints from replicaCount (avoids stale pod references)
 - **Bitnami `startFromSnapshot`**: Official chart mechanism for etcd restore
-- **Single-replica bootstrap**: Restore etcd as 1 replica (EBS RWO compatible), then scale up
-- **EBS RWO confirmed safe**: EBS does NOT support RWX; sequential access (Job→etcd-0) works with RWO since only one pod mounts at a time
-- **Milvus Operator**: Now at `zilliztech/milvus-operator` (original `milvus-io/milvus-operator` archived Nov 2023). API: `milvus.io/v1beta1`
-- **CR patch (not delete/recreate)**: Scale down and startFromSnapshot are applied as JSON merge patches to the existing Milvus CR. Flux resume reconciles back to Git state.
-- **etcd deployed as Helm release by operator**: Operator deploys etcd via `helm install {operatorName}-etcd`. Uninstalled via Helm SDK (`action.Uninstall`).
-- **Flux handles cleanup**: Temp `startFromSnapshot` config removed on reconcile; HPAs/ScaledObjects recreated
-- **2 confirmation gates** at destructive steps (snapshot selection, pre-destructive confirmation). Overridden by `--force`.
-- **Interactive as well as Non-Interactive**: The tool should be able to run interactively with prompts as well as non-interactively with flags for configuration/confirmation. For example, `make run CMD="snapshot restore"` (Interactive prompts for configuration and confirmation gates) `make run CMD="snapshot restore --snapshot-id 2025-04-29T10-00-00Z --force"` (Non-Interactive with flags for providing needed values)
+- **Single-replica bootstrap**: Restore etcd as 1 replica (EBS RWO compatible), then Flux scales up
+- **EBS RWO confirmed safe**: Sequential access (Job→etcd-0) works since only one pod mounts at a time
+- **Milvus Operator**: `zilliztech/milvus-operator`, API: `milvus.io/v1beta1`
+- **Flux handles worker scale-up**: After resume, Flux reconciles CR to Git state (full replicas, HPAs, ScaledObjects)
+- **2 confirmation gates**: Snapshot selection + pre-destructive. Overridden by `--force`.
+- **Interactive + Non-Interactive**: `make run CMD="snapshot restore"` vs `make run CMD="snapshot restore --snapshot-id ... --force"`
 
 ### Etcd `startFromSnapshot` Mechanism
+
+Note that this is an internal helm chart feature that ships with the Milvus operator.
 
 1. Mounts snapshot PVC in init container
 2. Copies snapshot file to known path
 3. Main entrypoint detects snapshot + empty data dir → runs `etcdctl snapshot restore`
 4. Handles member naming/cluster config automatically
-5. After etcd-0 is healthy, scale to full replicas (new members join via `etcdctl member add`)
+5. After etcd-0 is healthy, CLI nulls startFromSnapshot by setting it to `{}`, then Flux scales to full replicas
 
 ### Temp Resources
 
@@ -219,11 +253,12 @@ restore:
 | PVC `milvus-restore-snapshot-<id>` | Holds etcd snapshot for `startFromSnapshot` | Deleted after restore |
 | Job `milvus-restore-download-<id>` | Downloads snapshot from S3 to PVC           | Deleted after restore |
 
-### Flux Isolation Strategy
+### Flux Strategy
 
-- Suspend only the specific Kustomization managing Milvus (not entire infrastructure)
-- HPAs/ScaledObjects are deleted (not annotated) — Flux recreates on resume
-- After resume, Flux reconciles CR back to Git-defined state
+- Pause and resume the Kustomization specified in config (`restore.flux_kustomization_name`)
+- HPAs/ScaledObjects are deleted as part of full resource cleanup — Flux recreates on resume
+- CLI nulls `startFromSnapshot` by setting it to `{}` before Flux resume so Flux sees clean etcd config
+- After resume, Flux reconciles CR back to Git-defined state (workers, scalers, replicaCount, etc.)
 
 ### Kubernetes Deployment
 
@@ -231,13 +266,29 @@ restore:
 - **Snapshot restore:** Manual Job or interactive CLI invocation
 - **IRSA** for S3 access (AWS credentials from service account annotation)
 - In-cluster K8s client (uses pod service account)
-- RBAC needed: Milvus CR (get/delete/create/patch), etcd PVCs (delete/list), HPAs (list/delete), KEDA ScaledObjects (list/delete), Flux Kustomization (patch), Jobs (create/delete), PVCs (create/delete)
+- RBAC needed: Milvus CR (get/delete/create/patch), etcd Helm release (uninstall), etcd PVCs (delete/list), HPAs (list/delete), KEDA ScaledObjects (list/delete), Flux Kustomization (patch), Jobs (create/delete), PVCs (create/delete)
+
+### Implementation Changes Required
+
+**`internal/k8s/client.go`:**
+
+- Add `DeleteMilvusCR(ctx, name, namespace)` — deletes the Milvus CR
+- Add `CreateMilvusCR(ctx, namespace, obj)` — creates a Milvus CR from unstructured object
+- Remove `ScaleDownMilvus()` (no longer needed — we delete the entire CR)
+- Keep: `DeleteHPAs`, `DeleteScaledObjects`, `DeleteEtcdResources`, `CreateTempPVC`, `CreateDownloadJob`, `WaitForJobComplete`, `WaitForPodsTerminated`, `WaitForStatefulSetReady`, `DeleteJob`, `DeletePVC`, `SuspendFlux`, `ResumeFlux`, `GetMilvusCR`, `PatchMilvusCR`
+
+**`cmd/restore.go`:**
+
+- Rewrite `runRestore()` to follow revised flow
+- Add helper `buildRestoreCR(originalCR, pvcName)` — sanitizes CR + sets 0 replicas + startFromSnapshot
+- Add helper to null out startFromSnapshot (simple JSON merge patch)
+- Remove old `buildStartFromSnapshotPatch()` (replaced by `buildRestoreCR`)
 
 ---
 
 ## Progress
 
-**Current Status:** Phase 8 complete. Snapshot restore orchestration implemented.
+**Current Status:** Phase 8 complete (delete-and-recreate approach implemented). Phase 9 next.
 
 ### Phase Checklist
 
@@ -252,8 +303,7 @@ restore:
 | 6     | Snapshot list command              | ✅ Done |
 | 7     | K8s client for restore             | ✅ Done |
 | 8     | Snapshot restore orchestration     | ✅ Done |
-| 9     | Kubernetes deployment manifests    | ⬜ Next |
-| 10    | Testing & CI                       | ⬜      |
+| 9     | Testing & CI                       | ⬜ Next |
 
 ### Phase 7 Tasks (K8s Client)
 
@@ -268,18 +318,22 @@ restore:
 - [x] Wait helpers: pods terminated, etcd ready, Milvus healthy
 - [x] Cleanup: delete temp PVC + Job
 
-### Phase 8 Tasks (Restore Orchestration)
+### Phase 8 Tasks (Restore Orchestration) — COMPLETE
 
 - [x] Add `RestoreConfig` to Config struct with mapstructure tags
-- [x] Wire restore command with full orchestration flow
 - [x] Resolve snapshot: latest complete, --snapshot-id flag, config, env
 - [x] Interactive confirmation gates (skipped with --force)
-- [x] `buildStartFromSnapshotPatch()` returns JSON patch for etcd single-replica bootstrap
-- [x] Full end-to-end flow: Flux suspend → scalers delete → scale down via CR → helm uninstall etcd → S3 delete → wait → S3 copy → seed etcd → patch CR with startFromSnapshot → wait etcd → resume Flux → cleanup
+- [x] Rewrite restore flow: delete-and-recreate approach
+- [x] Add `DeleteMilvusCR()` to k8s client
+- [x] Add `CreateMilvusCR()` to k8s client
+- [x] Remove `ScaleDownMilvus()` from k8s client
+- [x] Add `buildRestoreCR()` helper (modifies saved CR: 0 replicas + startFromSnapshot)
+- [x] Add `buildRevertStartFromSnapshotPatch()` helper (nulls startFromSnapshot for Flux)
+- [x] Rewrite `runRestore()` with revised flow (read CR → delete all → wait pods → S3 → seed etcd → create CR → wait etcd → revert patch → resume Flux → cleanup)
 
 ### What's Next
 
-Begin Phase 9: Kubernetes deployment manifests (CronJob, RBAC, ConfigMap).
+Phase 9: Testing & CI.
 
 ### Future Plans
 

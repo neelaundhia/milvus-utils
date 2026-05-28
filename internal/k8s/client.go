@@ -176,35 +176,36 @@ func (c *Client) DeleteScaledObjects(ctx context.Context, namespace string) erro
 	return nil
 }
 
-// ScaleDownMilvus patches the Milvus CR to set all worker component replicas to 0.
-// This ensures the operator itself drives the scale-down rather than fighting
-// with direct deployment patches.
-func (c *Client) ScaleDownMilvus(ctx context.Context, name, namespace string) error {
+// DeleteMilvusCR deletes the Milvus CR using foreground propagation so the
+// operator cascade-deletes all Milvus deployments and services before returning.
+// Etcd is retained because the CR has deletionPolicy: Retain.
+func (c *Client) DeleteMilvusCR(ctx context.Context, name, namespace string) error {
 	c.log.WithFields(logrus.Fields{
-		"cr":        name,
+		"name":      name,
 		"namespace": namespace,
-		"action":    "patch spec.components.*.replicas = 0",
-	}).Debug("[DESTRUCTIVE] scaling down all Milvus CR components")
-
-	// Patch all known worker components to 0 replicas via the Milvus CR.
-	patch := []byte(`{
-		"spec": {
-			"components": {
-				"proxy":         {"replicas": 0},
-				"mixCoord":      {"replicas": 0},
-				"dataNode":      {"replicas": 0},
-				"queryNode":     {"replicas": 0},
-				"streamingNode": {"replicas": 0}
-			}
-		}
-	}`)
-	_, err := c.dynamic.Resource(MilvusGVR).Namespace(namespace).Patch(
-		ctx, name, types.MergePatchType, patch, metav1.PatchOptions{},
-	)
+	}).Debug("[DESTRUCTIVE] deleting milvus CR")
+	propagation := metav1.DeletePropagationForeground
+	err := c.dynamic.Resource(MilvusGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &propagation,
+	})
 	if err != nil {
-		return fmt.Errorf("scaling down milvus CR %s/%s: %w", namespace, name, err)
+		return fmt.Errorf("deleting milvus CR %s/%s: %w", namespace, name, err)
 	}
-	c.log.WithFields(logrus.Fields{"name": name, "namespace": namespace}).Info("milvus CR components scaled to 0")
+	c.log.WithFields(logrus.Fields{"name": name, "namespace": namespace}).Info("milvus CR deleted")
+	return nil
+}
+
+// CreateMilvusCR creates a Milvus CR from the given unstructured object.
+func (c *Client) CreateMilvusCR(ctx context.Context, namespace string, obj *unstructured.Unstructured) error {
+	c.log.WithFields(logrus.Fields{
+		"name":      obj.GetName(),
+		"namespace": namespace,
+	}).Debug("creating milvus CR")
+	_, err := c.dynamic.Resource(MilvusGVR).Namespace(namespace).Create(ctx, obj, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("creating milvus CR %s/%s: %w", namespace, obj.GetName(), err)
+	}
+	c.log.WithFields(logrus.Fields{"name": obj.GetName(), "namespace": namespace}).Info("milvus CR created")
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/neelaundhia/milvus-utils/internal/s3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const (
@@ -110,6 +111,13 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// ── Step 2: Read live Milvus CR ─────────────────────────────────────
+	log.Info("reading live Milvus CR")
+	originalCR, err := k8sClient.GetMilvusCR(ctx, operatorName, namespace)
+	if err != nil {
+		return err
+	}
+
 	// ── Gate 2: Confirm destructive actions ─────────────────────────────
 	if !restoreForce {
 		msg := fmt.Sprintf("About to perform DESTRUCTIVE operations on Milvus CR %q in namespace %q. Continue?", operatorName, namespace)
@@ -128,9 +136,11 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ── Step 4: Scale down Milvus workers ───────────────────────────────
-	log.Info("scaling down Milvus workers via CR")
-	if err := k8sClient.ScaleDownMilvus(ctx, operatorName, namespace); err != nil {
+	// ── Step 4: Delete the Milvus CR ────────────────────────────────────
+	// The operator cascade-deletes all Milvus deployments/services.
+	// Etcd is retained due to deletionPolicy: Retain.
+	log.Info("deleting Milvus CR")
+	if err := k8sClient.DeleteMilvusCR(ctx, operatorName, namespace); err != nil {
 		return err
 	}
 
@@ -142,7 +152,14 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ── Step 6: Delete S3 files ─────────────────────────────────────────
+	// ── Step 6: Wait for all pods to terminate ──────────────────────────
+	podSelector := fmt.Sprintf("app.kubernetes.io/instance=%s", operatorName)
+	log.Info("waiting for all Milvus pods to terminate")
+	if err := k8sClient.WaitForPodsTerminated(ctx, namespace, podSelector, restoreWaitTimeout); err != nil {
+		return err
+	}
+
+	// ── Step 7: Delete S3 data ───────────────────────────────────────────
 	log.Info("deleting Milvus S3 data")
 	rootBucket := s3.ParseBucketURI(cfg.Milvus.RootBucket)
 	rootPrefix := cfg.Milvus.RootPath + "/"
@@ -151,13 +168,6 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("deleting S3 data: %w", err)
 	}
 	log.WithField("objects", deleted).Info("S3 data deleted")
-
-	// ── Step 7: Wait for all pods to terminate ──────────────────────────
-	podSelector := fmt.Sprintf("app.kubernetes.io/instance=%s", operatorName)
-	log.Info("waiting for all Milvus pods to terminate")
-	if err := k8sClient.WaitForPodsTerminated(ctx, namespace, podSelector, restoreWaitTimeout); err != nil {
-		return err
-	}
 
 	// ── Step 8: Copy S3 data from snapshot ──────────────────────────────
 	log.Info("restoring S3 data from snapshot")
@@ -191,10 +201,12 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ── Step 10: Patch Milvus CR with startFromSnapshot ─────────────────
-	log.Info("patching Milvus CR with startFromSnapshot config")
-	startFromSnapshotPatch := buildStartFromSnapshotPatch(pvcName)
-	if err := k8sClient.PatchMilvusCR(ctx, operatorName, namespace, startFromSnapshotPatch); err != nil {
+	// ── Step 10: Recreate Milvus CR ──────────────────────────────────────
+	// Build a sanitized version of the original CR with startFromSnapshot set,
+	// etcd at 1 replica, and all Milvus workers at 0 replicas.
+	log.Info("recreating Milvus CR with startFromSnapshot config")
+	restoreCR := buildRestoreCR(originalCR, pvcName)
+	if err := k8sClient.CreateMilvusCR(ctx, namespace, restoreCR); err != nil {
 		return err
 	}
 
@@ -205,7 +217,14 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ── Step 12: Resume Flux ────────────────────────────────────────────
+	// ── Step 12: Revert startFromSnapshot ───────────────────────────────
+	// Null out startFromSnapshot so Flux sees clean etcd config on reconcile.
+	log.Info("reverting startFromSnapshot on Milvus CR")
+	if err := k8sClient.PatchMilvusCR(ctx, operatorName, namespace, buildRevertStartFromSnapshotPatch()); err != nil {
+		return err
+	}
+
+	// ── Step 13: Resume Flux ─────────────────────────────────────────────
 	if cfg.Restore.FluxKustomizationName != "" {
 		log.Info("resuming flux kustomization")
 		if err := k8sClient.ResumeFlux(ctx, cfg.Restore.FluxKustomizationName, cfg.Restore.FluxKustomizationNamespace); err != nil {
@@ -213,7 +232,7 @@ func runRestore(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// ── Step 13: Cleanup temp resources ─────────────────────────────────
+	// ── Step 14: Cleanup temp resources ─────────────────────────────────
 	log.Info("cleaning up temp resources")
 	if err := k8sClient.DeleteJob(ctx, namespace, jobName); err != nil {
 		log.WithError(err).Warn("failed to delete download job")
@@ -302,26 +321,65 @@ func sanitizeK8sName(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// buildStartFromSnapshotPatch returns a JSON merge patch that configures etcd
-// for single-replica snapshot restore via the Bitnami startFromSnapshot mechanism.
-func buildStartFromSnapshotPatch(pvcName string) []byte {
-	return []byte(fmt.Sprintf(`{
-		"spec": {
-			"dependencies": {
-				"etcd": {
-					"inCluster": {
-						"values": {
-							"replicaCount": 1,
-							"startFromSnapshot": {
-								"enabled": true,
-								"existingClaim": %q,
-								"snapshotFilename": "snapshot.db"
-							}
-						}
-					}
-				}
+// buildRestoreCR deep-copies the live Milvus CR and sanitizes it for restore:
+// - strips server-managed metadata (resourceVersion, uid, creationTimestamp, generation, finalizers, labels)
+// - strips milvus.io/* annotations
+// - removes spec.dependencies.etcd.endpoints (let operator derive from replicaCount)
+// - sets etcd replicaCount=1 and startFromSnapshot for the given PVC
+// - sets all Milvus worker component replicas to 0
+// - removes status
+func buildRestoreCR(originalCR *unstructured.Unstructured, pvcName string) *unstructured.Unstructured {
+	cr := originalCR.DeepCopy()
+
+	// Strip server-managed metadata fields.
+	unstructured.RemoveNestedField(cr.Object, "metadata", "resourceVersion")
+	unstructured.RemoveNestedField(cr.Object, "metadata", "uid")
+	unstructured.RemoveNestedField(cr.Object, "metadata", "creationTimestamp")
+	unstructured.RemoveNestedField(cr.Object, "metadata", "generation")
+	unstructured.RemoveNestedField(cr.Object, "metadata", "finalizers")
+	unstructured.RemoveNestedField(cr.Object, "metadata", "labels")
+
+	// Strip milvus.io/* annotations; remove the key if all annotations are stripped.
+	if raw, found, _ := unstructured.NestedStringMap(cr.Object, "metadata", "annotations"); found {
+		for k := range raw {
+			if strings.HasPrefix(k, "milvus.io/") {
+				delete(raw, k)
 			}
 		}
-	}`, pvcName))
+		if len(raw) == 0 {
+			unstructured.RemoveNestedField(cr.Object, "metadata", "annotations")
+		} else {
+			annoMap := make(map[string]interface{}, len(raw))
+			for k, v := range raw {
+				annoMap[k] = v
+			}
+			_ = unstructured.SetNestedMap(cr.Object, annoMap, "metadata", "annotations")
+		}
+	}
+
+	// Remove etcd endpoints — let the operator derive them from replicaCount.
+	unstructured.RemoveNestedField(cr.Object, "spec", "dependencies", "etcd", "endpoints")
+
+	// Configure etcd for single-replica snapshot bootstrap.
+	_ = unstructured.SetNestedField(cr.Object, int64(1), "spec", "dependencies", "etcd", "inCluster", "values", "replicaCount")
+	_ = unstructured.SetNestedField(cr.Object, true, "spec", "dependencies", "etcd", "inCluster", "values", "startFromSnapshot", "enabled")
+	_ = unstructured.SetNestedField(cr.Object, pvcName, "spec", "dependencies", "etcd", "inCluster", "values", "startFromSnapshot", "existingClaim")
+	_ = unstructured.SetNestedField(cr.Object, "snapshot.db", "spec", "dependencies", "etcd", "inCluster", "values", "startFromSnapshot", "snapshotFilename")
+
+	// Set all worker component replicas to 0 — Flux scales them up on reconcile.
+	for _, component := range []string{"proxy", "mixCoord", "dataNode", "queryNode", "streamingNode", "standalone"} {
+		_ = unstructured.SetNestedField(cr.Object, int64(0), "spec", "components", component, "replicas")
+	}
+
+	// Remove status — server-managed.
+	unstructured.RemoveNestedField(cr.Object, "status")
+
+	return cr
+}
+
+// buildRevertStartFromSnapshotPatch returns a JSON merge patch that nulls out
+// startFromSnapshot so Flux sees a clean etcd config on reconcile.
+func buildRevertStartFromSnapshotPatch() []byte {
+	return []byte(`{"spec":{"dependencies":{"etcd":{"inCluster":{"values":{"startFromSnapshot":{}}}}}}}`) 
 }
 
